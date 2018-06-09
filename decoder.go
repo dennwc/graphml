@@ -218,7 +218,7 @@ func (d *docDecoder) decodeData(kind Kind, start xml.StartElement) (*Data, error
 	for _, a := range start.Attr {
 		data.addAttr(a)
 	}
-	if k, ok := d.keys[data.Key]; !ok || k.For != kind {
+	if k, ok := d.keys[data.Key]; !ok || (k.For != kind && k.For != KindAll) {
 		return nil, fmt.Errorf("unexpected attr for %v: %q", kind, data.Key)
 	}
 	for {

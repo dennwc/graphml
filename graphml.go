@@ -49,6 +49,16 @@ type ExtObject struct {
 	Data []Data `xml:"data"`
 }
 
+func NewKey(kind Kind, id, name, typ string) Key {
+	return Key{
+		Object: Object{
+			ID: id,
+		},
+		For:  kind,
+		Name: name, Type: typ,
+	}
+}
+
 type Key struct {
 	Object
 	For  Kind   `xml:"for,attr"`
@@ -182,16 +192,20 @@ func (r *tokenReader) Token() (xml.Token, error) {
 type EdgeDir string
 
 const (
-	EdgeDirected = EdgeDir("directed")
+	EdgeDirected   = EdgeDir("directed")
+	EdgeUndirected = EdgeDir("undirected")
 )
 
 type Kind string
 
 const (
-	KindUnknown = Kind("")
-	KindGraphML = Kind("graphml")
-	KindNode    = Kind("node")
-	KindEdge    = Kind("edge")
-	KindPort    = Kind("port")
-	KindGraph   = Kind("graph")
+	KindUnknown   = Kind("")
+	KindAll       = Kind("all")
+	KindGraphML   = Kind("graphml")
+	KindGraph     = Kind("graph")
+	KindNode      = Kind("node")
+	KindEdge      = Kind("edge")
+	KindHyperEdge = Kind("hyperedge")
+	KindPort      = Kind("port")
+	KindEndpoint  = Kind("endpoint")
 )
