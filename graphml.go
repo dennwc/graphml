@@ -5,7 +5,12 @@ import (
 	"io"
 )
 
-const namespace = "http://graphml.graphdrawing.org/xmlns"
+const (
+	// Ext is a file extension for GraphML files.
+	Ext = ".graphml"
+	// Namespace is a canonical XML namespace for GraphML.
+	Namespace = "http://graphml.graphdrawing.org/xmlns"
+)
 
 type element interface {
 	addAttr(a xml.Attr)
@@ -16,6 +21,7 @@ func newAttr(ns, local, value string) xml.Attr {
 	return xml.Attr{Name: xml.Name{Local: local, Space: ns}, Value: value}
 }
 
+// Document is a self-contained GraphML document.
 type Document struct {
 	Instr  xml.ProcInst
 	Attrs  []xml.Attr
@@ -24,6 +30,7 @@ type Document struct {
 	Data   []Data  `xml:"data"`
 }
 
+// Object is a set of common attributes for nodes edges and graphs.
 type Object struct {
 	ID           string     `xml:"id,attr"`
 	Unrecognized []xml.Attr `xml:",any,attr"`
@@ -38,17 +45,21 @@ func (o *Object) addAttr(a xml.Attr) {
 	}
 }
 func (o *Object) attrs() []xml.Attr {
-	out := make([]xml.Attr, len(o.Unrecognized)+1)
-	out = append(out, newAttr("", "id", o.ID))
+	out := make([]xml.Attr, 0, len(o.Unrecognized)+1)
+	if o.ID != "" {
+		out = append(out, newAttr("", "id", o.ID))
+	}
 	out = append(out, o.Unrecognized...)
 	return out
 }
 
+// ExtObject is a common set of attributes for nodes that can be extended.
 type ExtObject struct {
 	Object
 	Data []Data `xml:"data"`
 }
 
+// NewKey creates a new custom attribute definition.
 func NewKey(kind Kind, id, name, typ string) Key {
 	return Key{
 		Object: Object{
@@ -59,6 +70,7 @@ func NewKey(kind Kind, id, name, typ string) Key {
 	}
 }
 
+// Key is a definition of a custom attribute.
 type Key struct {
 	Object
 	For  Kind   `xml:"for,attr"`
@@ -90,8 +102,11 @@ func (k *Key) attrs() []xml.Attr {
 	return attrs
 }
 
+// Graph is a set of nodes and edges.
 type Graph struct {
 	ExtObject
+
+	// EdgeDefault is a default direction mode for edges (directed or undirected).
 	EdgeDefault EdgeDir `xml:"edgedefault,attr"`
 
 	Nodes []Node `xml:"node"`
@@ -114,6 +129,7 @@ func (g *Graph) attrs() []xml.Attr {
 	return attrs
 }
 
+// Node is a node in a graph.
 type Node struct {
 	ExtObject
 
@@ -127,6 +143,7 @@ func (n *Node) attrs() []xml.Attr {
 	return n.Object.attrs()
 }
 
+// Edge is a connection between two nodes in a graph.
 type Edge struct {
 	ExtObject
 	Source string `xml:"source,attr"`
@@ -152,12 +169,14 @@ func (e *Edge) attrs() []xml.Attr {
 	return attrs
 }
 
+// Data is a raw XML value for a custom attribute.
 type Data struct {
 	Key          string     `xml:"key,attr"`
 	Unrecognized []xml.Attr `xml:",any,attr"`
 	Data         []xml.Token
 }
 
+// Reader returns a XML token reader for this custom attribute. See xml.NewTokenDecoder().
 func (d *Data) Reader() xml.TokenReader {
 	return &tokenReader{tokens: d.Data}
 }
@@ -170,7 +189,7 @@ func (d *Data) addAttr(a xml.Attr) {
 	}
 }
 func (d *Data) attrs() []xml.Attr {
-	attrs := make([]xml.Attr, len(d.Unrecognized)+1)
+	attrs := make([]xml.Attr, 0, len(d.Unrecognized)+1)
 	attrs = append(attrs, newAttr("", "key", d.Key))
 	attrs = append(attrs, d.Unrecognized...)
 	return attrs
@@ -189,6 +208,7 @@ func (r *tokenReader) Token() (xml.Token, error) {
 	return t, nil
 }
 
+// EdgeDir is a direction mode for edges (directed or undirected).
 type EdgeDir string
 
 const (
@@ -196,10 +216,10 @@ const (
 	EdgeUndirected = EdgeDir("undirected")
 )
 
+// Kind is an element kind used for extensions.
 type Kind string
 
 const (
-	KindUnknown   = Kind("")
 	KindAll       = Kind("all")
 	KindGraphML   = Kind("graphml")
 	KindGraph     = Kind("graph")

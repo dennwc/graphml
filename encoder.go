@@ -5,11 +5,13 @@ import (
 	"io"
 )
 
+// Encode writes a GraphML document to the stream.
 func Encode(w io.Writer, doc *Document) error {
 	enc := xml.NewEncoder(w)
 	return EncodeTo(enc, doc)
 }
 
+// EncodeTo is similar to Encode, but allows to provide a custom XML encoder.
 func EncodeTo(enc *xml.Encoder, doc *Document) error {
 	d := &docEncoder{enc: enc}
 	if err := d.Encode(doc); err != nil {

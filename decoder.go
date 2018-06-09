@@ -7,16 +7,19 @@ import (
 	"io"
 )
 
+// Decode reads a GraphML document from the stream.
 func Decode(r io.Reader) (*Document, error) {
 	dec := xml.NewDecoder(r)
 	return DecodeFrom(dec)
 }
 
+// DecodeFrom is similar to Decode, but allows to specify a custom XML decoder.
 func DecodeFrom(dec *xml.Decoder) (*Document, error) {
 	b := &docDecoder{
-		doc:  new(Document),
-		keys: make(map[string]Key),
-		ids:  make(map[string]struct{}),
+		doc:     new(Document),
+		keysAll: make(map[string]Key),
+		keys:    make(map[docKey]Key),
+		ids:     make(map[string]struct{}),
 	}
 	if err := b.DecodeFrom(dec); err != nil {
 		return nil, err
@@ -36,10 +39,17 @@ func canSkip(t xml.Token) bool {
 	return false
 }
 
+type docKey struct {
+	name string
+	kind Kind
+}
+
 type docDecoder struct {
-	dec  *xml.Decoder
-	keys map[string]Key
-	ids  map[string]struct{}
+	dec     *xml.Decoder
+	keysAll map[string]Key
+	keys    map[docKey]Key
+	ids     map[string]struct{}
+	lastID  int
 
 	doc *Document
 }
@@ -81,7 +91,7 @@ func (d *docDecoder) startGraphML() (xml.StartElement, error) {
 			d.doc.Instr = t.Copy()
 			continue
 		case xml.StartElement:
-			if t.Name.Local == "graphml" && t.Name.Space == namespace {
+			if t.Name.Local == "graphml" && t.Name.Space == Namespace {
 				d.doc.Attrs = t.Copy().Attr
 				return t, nil
 			}
@@ -106,7 +116,7 @@ func (d *docDecoder) DecodeFrom(dec *xml.Decoder) error {
 		}
 		switch t := t.(type) {
 		case xml.StartElement:
-			if t.Name.Space != namespace {
+			if t.Name.Space != Namespace {
 				return fmt.Errorf("unexpected element: %v", t.Name)
 			}
 			switch t.Name.Local {
@@ -143,25 +153,47 @@ func (d *docDecoder) decodeKey(start xml.StartElement) error {
 	for _, a := range start.Attr {
 		k.addAttr(a)
 	}
-	if _, ok := d.keys[k.ID]; ok {
-		return fmt.Errorf("redefinition of key %q", k.ID)
+	if k.For == "" {
+		k.For = KindAll
 	}
-	d.keys[k.ID] = k
+	if k.For == KindAll {
+		if _, ok := d.keysAll[k.ID]; ok {
+			return fmt.Errorf("redefinition of key %q", k.ID)
+		}
+		d.keysAll[k.ID] = k
+	} else {
+		dk := docKey{name: k.ID, kind: k.For}
+		if _, ok := d.keys[dk]; ok {
+			return fmt.Errorf("redefinition of key %q for %v", k.ID, k.For)
+		}
+		d.keys[dk] = k
+	}
 	d.doc.Keys = append(d.doc.Keys, k)
 	if err := d.expectEnd(start.Name); err != nil {
 		return err
 	}
 	return nil
 }
+func (d *docDecoder) addID(id string) (string, error) {
+	if id == "" {
+		return "", nil
+	}
+	if _, ok := d.ids[id]; ok {
+		return "", fmt.Errorf("redefinition of id %q", id)
+	}
+	d.ids[id] = struct{}{}
+	return id, nil
+}
 func (d *docDecoder) decodeGraph(start xml.StartElement) (*Graph, error) {
 	var g Graph
 	for _, a := range start.Attr {
 		g.addAttr(a)
 	}
-	if _, ok := d.ids[g.ID]; ok {
-		return nil, fmt.Errorf("redefinition of id %q", g.ID)
+	var err error
+	g.ID, err = d.addID(g.ID)
+	if err != nil {
+		return nil, err
 	}
-	d.ids[g.ID] = struct{}{}
 	if err := d.decodeGraphNodes(&g, start); err != nil {
 		return nil, err
 	}
@@ -179,7 +211,7 @@ func (d *docDecoder) decodeGraphNodes(g *Graph, start xml.StartElement) error {
 		}
 		switch t := t.(type) {
 		case xml.StartElement:
-			if t.Name.Space != namespace {
+			if t.Name.Space != Namespace {
 				return fmt.Errorf("unexpected element: %v", t.Name)
 			}
 			switch t.Name.Local {
@@ -218,8 +250,10 @@ func (d *docDecoder) decodeData(kind Kind, start xml.StartElement) (*Data, error
 	for _, a := range start.Attr {
 		data.addAttr(a)
 	}
-	if k, ok := d.keys[data.Key]; !ok || (k.For != kind && k.For != KindAll) {
-		return nil, fmt.Errorf("unexpected attr for %v: %q", kind, data.Key)
+	if _, ok := d.keys[docKey{name: data.Key, kind: kind}]; !ok {
+		if _, ok = d.keysAll[data.Key]; !ok {
+			return nil, fmt.Errorf("unexpected attr for %v: %q", kind, data.Key)
+		}
 	}
 	for {
 		t, err := d.token()
@@ -243,10 +277,11 @@ func (d *docDecoder) decodeNode(start xml.StartElement) (*Node, error) {
 	for _, a := range start.Attr {
 		n.addAttr(a)
 	}
-	if _, ok := d.ids[n.ID]; ok {
-		return nil, fmt.Errorf("redefinition of id %q", n.ID)
+	var err error
+	n.ID, err = d.addID(n.ID)
+	if err != nil {
+		return nil, err
 	}
-	d.ids[n.ID] = struct{}{}
 	for {
 		t, err := d.token()
 		if err == io.EOF {
@@ -258,7 +293,7 @@ func (d *docDecoder) decodeNode(start xml.StartElement) (*Node, error) {
 		}
 		switch t := t.(type) {
 		case xml.StartElement:
-			if t.Name.Space != namespace {
+			if t.Name.Space != Namespace {
 				return nil, fmt.Errorf("unexpected element: %v", t.Name)
 			}
 			switch t.Name.Local {
@@ -291,10 +326,11 @@ func (d *docDecoder) decodeEdge(start xml.StartElement) (*Edge, error) {
 	for _, a := range start.Attr {
 		e.addAttr(a)
 	}
-	if _, ok := d.ids[e.ID]; ok {
-		return nil, fmt.Errorf("redefinition of id %q", e.ID)
+	var err error
+	e.ID, err = d.addID(e.ID)
+	if err != nil {
+		return nil, err
 	}
-	d.ids[e.ID] = struct{}{}
 	for {
 		t, err := d.token()
 		if err == io.EOF {
@@ -306,7 +342,7 @@ func (d *docDecoder) decodeEdge(start xml.StartElement) (*Edge, error) {
 		}
 		switch t := t.(type) {
 		case xml.StartElement:
-			if t.Name.Space != namespace {
+			if t.Name.Space != Namespace {
 				return nil, fmt.Errorf("unexpected element: %v", t.Name)
 			}
 			switch t.Name.Local {
